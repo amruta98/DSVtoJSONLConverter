@@ -12,14 +12,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Scanner;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import org.apache.commons.validator.GenericValidator;
 import org.apache.log4j.Logger;
 
 import com.google.gson.Gson;
@@ -33,12 +34,12 @@ public class DSVFileConverter {
     private static SimpleDateFormat inputFormat1=new SimpleDateFormat("yyyy/MM/dd");
     private static SimpleDateFormat inputFormat2=new SimpleDateFormat("dd-MM-yyyy");
 	private static final Logger log = Logger.getLogger(DSVFileConverter.class.getName());	
+	private static final List<String> delimiterList=Arrays.asList(new String[]{",","|",".","||",":",";"});
 
 	public static void main(String[] args){
 		try {
 			if(args.length>=1){
 				String filePath=args[0].split("=",2)[1];
-				String delimiter=" ";
 				for(int i=1;i<args.length;i++){
 					if(args[i]!=null)
 						filePath = filePath+" "+args[i] ;
@@ -46,27 +47,20 @@ public class DSVFileConverter {
 				System.out.println();
 				System.out.println("FilePath : ["+filePath+"]");
 				System.out.println();
-				Scanner sc=new Scanner(System.in);
-				System.out.print("Enter delimeter :");
-				delimiter=sc.nextLine();
-				sc.close();
-				System.out.println();
-				if(delimiter.isEmpty())
-					delimiter=" ";
-				createJSONL(filePath, delimiter);
+				createJSONL(filePath);
 			}else
-				log.error("Please provide args like  java -jar jarname.jar file=E:\\input 1.txt");
+				log.error("Please provide arguments like java -jar jarname.jar file=E:\\input 1.txt");
 		}catch(IOException e){
-			log.error("Please check args it should like java -jar jarname.jar file=E:\\input 1.txt");
+			log.error("Please check arguments it should be like java -jar jarname.jar file=E:\\input 1.txt");
     		log.error(getStackTrace(e));
     	}catch(Exception e){
-			log.error("Please check args it should like java -jar jarname.jar file=E:\\input 1.txt");
+			log.error("Please check arguments it should be like java -jar jarname.jar file=E:\\input 1.txt");
     		log.error(getStackTrace(e));
     	}
 	}
     
-    public static void createJSONL(String filePath,String delimiter) throws Exception{
-    	log.info("Conversion started for :["+filePath+ "] with delimiter :"+delimiter);
+    public static String createJSONL(String filePath) throws Exception{
+    	log.info("Conversion started for :["+filePath+ "]");
 		String encoding = "UTF-8";
     	String outputFilePath=System.getProperty("user.dir")+File.separator+"output"+File.separator+"output_"+System.currentTimeMillis()+".jsonl";
     	Stream<String> stream=null;
@@ -76,10 +70,11 @@ public class DSVFileConverter {
 				throw new Exception("Invalid input filePath:["+filePath+"]");
 			Path path=Paths.get(filePath);
 			stream=Files.lines(path);
-			if (stream != null && writer != null && delimiter!=null&& !delimiter.isEmpty()) {
+			if (stream != null && writer != null ) {
 				Optional<String> keysValue = Files.lines(path).limit(1).findFirst();
 				if (keysValue.isPresent()) {
 					String keysLine = keysValue.get();
+					String delimiter = getDelimiter(keysLine);
 					String[] keys = keysLine.split(Pattern.quote(delimiter));
 					stream.skip(1).map(val -> getJsonObject(val, delimiter, keys)).forEach(val -> {
 						try {
@@ -93,8 +88,8 @@ public class DSVFileConverter {
 					log.warn("No lines present in input file.");
 				}
 			}else{
-				log.error("Invalid input:["+ filePath+ "] delimiter:"+ delimiter);
-				throw new Exception("Invalid input:["+ filePath+ "] \n\tdelimiter:"+ delimiter);
+				log.error("Invalid input:["+ filePath+ "]");
+				throw new Exception("Invalid input:["+ filePath+ "]");
 			}
 		} finally {
 			if(writer!=null)
@@ -102,8 +97,20 @@ public class DSVFileConverter {
 			if(stream!=null)
 				stream.close();
 		}
+		return outputFilePath;
 
     }
+	private static String getDelimiter(String keysLine) {
+		String delimiter=" ";
+		for (String str : delimiterList) {
+			if (keysLine != null && keysLine.contains(str)) {
+				delimiter=str;
+				break;
+			}
+		}
+		return delimiter;
+	}
+
 	private static String getJsonObject(String line,String delimiter,String[] keys) {
 		map=new LinkedHashMap<>();
 		try {
@@ -159,18 +166,17 @@ public class DSVFileConverter {
 					values = valueList.toArray(new String[0]);
 			}
 			for (int i = 0; i < keys.length; i++) {
-				if (keys[i].equals("dateOfBirth")) {
-					try{
+				if (values[i] != null && !values[i].isEmpty()) {
+					if (GenericValidator.isDate(values[i], "yyyy/MM/dd", true)) {
 						values[i] = outputFormat.format(inputFormat1.parse(values[i]));
-					}catch(Exception e){
-						if(values[i].length()>3&&values[i].charAt(2)=='-')
-							values[i] = outputFormat.format(inputFormat2.parse(values[i]));
+					}else if (GenericValidator.isDate(values[i], "dd-MM-yyyy", true)) {
+						values[i] = outputFormat.format(inputFormat2.parse(values[i]));
+					}else if (GenericValidator.isDate(values[i], "yyyy-MM-dd", true)) {
+						values[i] = outputFormat.format(outputFormat.parse(values[i]));
 					}
-				}
-				if(values[i]!=null&&values[i].matches("[0-9]+")){
-					map.put(keys[i],Integer.parseInt(values[i]));
-				}else{
-					if(values[i]!=null&&!values[i].isEmpty()){
+					if (values[i].matches("[0-9]+")) {
+						map.put(keys[i], Integer.parseInt(values[i]));
+					} else {
 						map.put(keys[i], values[i]);
 					}
 				}
